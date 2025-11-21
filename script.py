@@ -219,6 +219,170 @@ def select_dropdown_option(driver, select_id, option_value, use_js=False):
         print(f"  ❌ Error selecting dropdown option: {e}")
         raise
 
+def select_autocomplete_option(driver, input_id, search_text, option_text, use_js=False):
+    """Select an option from an autocomplete input field"""
+    try:
+        # Find the autocomplete input field
+        input_element = None
+        selectors = [
+            (By.ID, input_id),
+            (By.CSS_SELECTOR, f"#{input_id}"),
+            (By.CSS_SELECTOR, f"input[id='{input_id}']"),
+            (By.XPATH, f"//input[@id='{input_id}']"),
+        ]
+        
+        for selector_type, selector_value in selectors:
+            try:
+                input_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((selector_type, selector_value))
+                )
+                if input_element:
+                    print(f"  Found autocomplete input using {selector_type}")
+                    break
+            except:
+                continue
+        
+        if not input_element:
+            raise Exception(f"Could not find autocomplete input with ID: {input_id}")
+        
+        # Scroll into view
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", input_element)
+        human_delay(0.5, 1.0)
+        
+        # Wait for input to be clickable
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(input_element))
+        
+        # Clear the input field first
+        input_element.clear()
+        human_delay(0.3, 0.5)
+        
+        # Click to focus
+        ActionChains(driver).move_to_element(input_element).pause(
+            random.uniform(0.2, 0.4)
+        ).click().perform()
+        human_delay(0.3, 0.5)
+        
+        # Type the search text (character by character for more human-like behavior)
+        for char in search_text:
+            input_element.send_keys(char)
+            time.sleep(random.uniform(0.05, 0.15))
+        
+        human_delay(1.0, 1.5)  # Wait for autocomplete to appear
+        
+        # Wait for autocomplete dropdown to appear and be visible
+        # Try multiple selectors for the autocomplete dropdown
+        autocomplete_dropdown = None
+        print("  Waiting for autocomplete dropdown to appear...")
+        
+        # First, wait for any visible dropdown/menu
+        try:
+            # Wait for dropdown to be visible (check multiple times)
+            for attempt in range(15):  # Wait up to 15 seconds
+                try:
+                    # Check for ui-autocomplete dropdown
+                    dropdowns = driver.find_elements(By.CSS_SELECTOR, "ul.ui-autocomplete")
+                    for dd in dropdowns:
+                        if dd.is_displayed():
+                            autocomplete_dropdown = dd
+                            print(f"  Found visible autocomplete dropdown (attempt {attempt + 1})")
+                            break
+                    
+                    if not autocomplete_dropdown:
+                        # Try finding by any visible list with class containing menu
+                        dropdowns = driver.find_elements(By.XPATH, "//ul[contains(@class, 'ui-menu')]")
+                        for dd in dropdowns:
+                            if dd.is_displayed() and 'display: none' not in dd.get_attribute('style'):
+                                autocomplete_dropdown = dd
+                                print(f"  Found visible menu dropdown (attempt {attempt + 1})")
+                                break
+                    
+                    if autocomplete_dropdown:
+                        break
+                except:
+                    pass
+                
+                time.sleep(0.5)
+                human_delay(0.2, 0.3)
+            
+            if not autocomplete_dropdown:
+                print("  ⚠ Autocomplete dropdown not found, trying to find options directly...")
+        except Exception as e:
+            print(f"  ⚠ Error finding dropdown: {e}, trying to find options directly...")
+        
+        # Find and click the option containing the desired text
+        option_element = None
+        print(f"  Looking for option containing: '{option_text}'...")
+        
+        # Wait for the option to appear (with or without dropdown container)
+        option_selectors = [
+            (By.XPATH, f"//li[contains(@class, 'ui-menu-item') and contains(., '{option_text}')]"),
+            (By.XPATH, f"//li[@class='ui-menu-item']/a[contains(., '{option_text}')]"),
+            (By.XPATH, f"//li[contains(., '{option_text}')]"),
+            (By.XPATH, f"//*[contains(@class, 'ui-menu-item') and contains(., '{option_text}')]"),
+            (By.PARTIAL_LINK_TEXT, option_text),
+        ]
+        
+        # Wait for option to appear (up to 10 seconds)
+        for attempt in range(20):
+            for selector_type, selector_value in option_selectors:
+                try:
+                    elements = driver.find_elements(selector_type, selector_value)
+                    for elem in elements:
+                        if elem.is_displayed():
+                            option_element = elem
+                            print(f"  Found autocomplete option using {selector_type} (attempt {attempt + 1})")
+                            break
+                    if option_element:
+                        break
+                except:
+                    continue
+            
+            if option_element:
+                break
+            
+            time.sleep(0.5)
+        
+        # Fallback: search all visible list items
+        if not option_element:
+            try:
+                print("  Trying fallback: searching all visible menu items...")
+                all_options = driver.find_elements(By.XPATH, "//li[contains(@class, 'ui-menu-item')]")
+                for opt in all_options:
+                    try:
+                        if opt.is_displayed() and option_text.lower() in opt.text.lower():
+                            option_element = opt
+                            print(f"  Found option by text search: {opt.text}")
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                print(f"  ⚠ Could not find option by searching: {e}")
+        
+        if not option_element:
+            raise Exception(f"Could not find autocomplete option with text: '{option_text}'. Make sure you typed '{search_text}' and the dropdown appeared.")
+        
+        # Click on the option
+        ActionChains(driver).move_to_element(option_element).pause(
+            random.uniform(0.2, 0.4)
+        ).click().perform()
+        human_delay(0.8, 1.2)
+        
+        # Verify selection by checking if input value contains the option text
+        input_value = input_element.get_attribute('value')
+        if option_text.lower() in input_value.lower():
+            print(f"  ✓ Selected autocomplete option: {input_value}")
+            return
+        else:
+            print(f"  ⚠ Selection might not have worked. Input value: {input_value}, Expected: {option_text}")
+            # Try one more time with direct click
+            time.sleep(1)
+            ActionChains(driver).move_to_element(option_element).click().perform()
+            human_delay(0.5, 1.0)
+            
+    except Exception as e:
+        print(f"  ❌ Error selecting autocomplete option: {e}")
+        raise
+
 def select_radio_button(driver, radio_id, use_js=False):
     """Select a radio button, works even if JS is disabled"""
     try:
@@ -438,25 +602,23 @@ def script_second_page():
         print("✓ Selected 'Car' option")
         human_delay(2, 3)  # Wait longer for dropdown to populate options
         
-        # Step 2: Select "Wood Green (London)" from test centre dropdown
-        print("\n[Step 4] Selecting 'Wood Green (London)' from test centre dropdown...")
-        # Wait for the test centre dropdown to be available and populated
+        # Step 2: Select "Wood Green (London)" from test centre autocomplete
+        print("\n[Step 4] Selecting 'Wood Green (London)' from test centre autocomplete...")
+        # Wait for the autocomplete input to be available
         try:
-            test_centre_dropdown = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.ID, 'testcentres'))
+            test_centre_input = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.ID, 'auto-testcentres'))
             )
-            # Wait for dropdown to have options loaded
-            WebDriverWait(driver, 15).until(
-                lambda d: len(d.find_elements(By.CSS_SELECTOR, '#testcentres option')) > 1
-            )
-            print("  Test centre dropdown is ready")
+            print("  Test centre autocomplete input is ready")
         except Exception as e:
-            print(f"  ⚠ Warning: Could not verify test centre dropdown is ready: {e}")
+            print(f"  ⚠ Warning: Could not find autocomplete input: {e}")
         
-        select_dropdown_option(
+        # Use autocomplete function to type "wood" and select "Wood Green (London)"
+        select_autocomplete_option(
             driver,
-            'testcentres',
-            '148',  # Wood Green (London) option value
+            'auto-testcentres',  # Autocomplete input ID
+            'wood',  # Text to type to trigger autocomplete
+            'Wood Green (London)',  # Option text to select
             use_js=js_enabled
         )
         print("✓ Selected 'Wood Green (London)' option")
