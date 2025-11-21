@@ -107,100 +107,244 @@ def connect_to_existing_chrome():
 def select_dropdown_option(driver, select_id, option_value, use_js=False):
     """Select an option from a dropdown, works even if JS is disabled"""
     try:
-        # Always try direct method first (works without JS)
-        select_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, select_id))
-        )
+        # Try multiple selector strategies
+        select_element = None
+        selectors = [
+            (By.ID, select_id),
+            (By.NAME, select_id),
+            (By.CSS_SELECTOR, f"#{select_id}"),
+            (By.CSS_SELECTOR, f"[name='{select_id}']"),
+            (By.CSS_SELECTOR, f"select[id='{select_id}']"),
+            (By.XPATH, f"//select[@id='{select_id}']"),
+        ]
+        
+        for selector_type, selector_value in selectors:
+            try:
+                select_element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((selector_type, selector_value))
+                )
+                if select_element:
+                    print(f"  Found dropdown using {selector_type}")
+                    break
+            except:
+                continue
+        
+        if not select_element:
+            raise Exception(f"Could not find dropdown element with ID/name: {select_id}")
         
         # Scroll into view
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", select_element)
-        human_delay(0.3, 0.6)
+        human_delay(0.5, 1.0)
+        
+        # Wait for dropdown to be clickable
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(select_element))
         
         if use_js:
-            # Try JavaScript method (faster if JS is enabled)
+            # Try JavaScript method first (faster if JS is enabled)
             try:
                 script = f"""
                 var select = document.getElementById('{select_id}');
+                if (!select) {{
+                    select = document.querySelector("select[name='{select_id}']");
+                }}
                 if (select) {{
                     select.value = '{option_value}';
-                    var event = new Event('change', {{ bubbles: true }});
-                    select.dispatchEvent(event);
+                    var changeEvent = new Event('change', {{ bubbles: true }});
+                    select.dispatchEvent(changeEvent);
                     var inputEvent = new Event('input', {{ bubbles: true }});
                     select.dispatchEvent(inputEvent);
+                    return select.value;
                 }}
+                return null;
                 """
-                driver.execute_script(script)
-                human_delay(0.3, 0.7)
+                result = driver.execute_script(script)
+                human_delay(0.5, 1.0)
                 # Verify selection
-                selected_value = driver.execute_script(f"return document.getElementById('{select_id}').value;")
-                if selected_value == option_value:
+                if result == option_value:
+                    print(f"  ✓ Selected via JavaScript")
                     return
-            except:
-                pass  # Fall through to direct method
+                else:
+                    print(f"  ⚠ JavaScript selection returned: {result}, trying direct method...")
+            except Exception as e:
+                print(f"  ⚠ JavaScript method failed: {e}, trying direct method...")
         
-        # Direct DOM manipulation method (works without JS)
-        # Click to focus
+        # Click to focus and open dropdown
         ActionChains(driver).move_to_element(select_element).pause(
-            random.uniform(0.1, 0.3)
+            random.uniform(0.2, 0.4)
         ).click().perform()
-        human_delay(0.2, 0.4)
+        human_delay(0.3, 0.5)
         
-        # Use Selenium's Select class for reliable selection
+        # Try multiple selection methods
         select_obj = Select(select_element)
-        select_obj.select_by_value(option_value)
-        human_delay(0.3, 0.7)
+        
+        # Method 1: Select by value
+        try:
+            select_obj.select_by_value(option_value)
+            human_delay(0.5, 1.0)
+            # Verify selection
+            selected_value = select_element.get_attribute('value')
+            if selected_value == option_value:
+                print(f"  ✓ Selected by value: {option_value}")
+                return
+        except Exception as e:
+            print(f"  ⚠ Select by value failed: {e}, trying by visible text...")
+        
+        # Method 2: Select by visible text (if we know the text)
+        # This is a fallback - we'll skip this for now
+        
+        # Method 3: Direct JavaScript fallback
+        try:
+            driver.execute_script(f"""
+                var select = arguments[0];
+                select.value = '{option_value}';
+                var event = new Event('change', {{ bubbles: true }});
+                select.dispatchEvent(event);
+            """, select_element)
+            human_delay(0.5, 1.0)
+            selected_value = select_element.get_attribute('value')
+            if selected_value == option_value:
+                print(f"  ✓ Selected via direct JavaScript on element")
+                return
+        except Exception as e:
+            print(f"  ⚠ Direct JavaScript on element failed: {e}")
+        
+        # Final verification
+        final_value = select_element.get_attribute('value')
+        if final_value == option_value:
+            print(f"  ✓ Selection verified: {final_value}")
+        else:
+            raise Exception(f"Selection failed. Expected: {option_value}, Got: {final_value}")
             
     except Exception as e:
-        print(f"Error selecting dropdown option: {e}")
+        print(f"  ❌ Error selecting dropdown option: {e}")
         raise
 
 def select_radio_button(driver, radio_id, use_js=False):
     """Select a radio button, works even if JS is disabled"""
     try:
-        # Always try direct method first (works without JS)
-        radio_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, radio_id))
-        )
+        # Try multiple selector strategies
+        radio_element = None
+        label_element = None
+        
+        selectors = [
+            (By.ID, radio_id),
+            (By.CSS_SELECTOR, f"#{radio_id}"),
+            (By.CSS_SELECTOR, f"input[type='radio'][id='{radio_id}']"),
+            (By.CSS_SELECTOR, f"input[type='radio'][name='{radio_id.split('-')[0]}'][value='{radio_id.split('-')[1] if '-' in radio_id else ''}']"),
+            (By.XPATH, f"//input[@type='radio' and @id='{radio_id}']"),
+        ]
+        
+        for selector_type, selector_value in selectors:
+            try:
+                radio_element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((selector_type, selector_value))
+                )
+                if radio_element:
+                    print(f"  Found radio button using {selector_type}")
+                    break
+            except:
+                continue
+        
+        # If radio not found by ID, try finding by name and value
+        if not radio_element:
+            # Try to parse ID like "specialNeedsChoice-noneeds" -> name="specialNeedsChoice", value="noneeds"
+            if '-' in radio_id:
+                name_part, value_part = radio_id.rsplit('-', 1)
+                try:
+                    radio_element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, f"input[type='radio'][name='{name_part}'][value='{value_part}']"))
+                    )
+                    if radio_element:
+                        print(f"  Found radio button by name='{name_part}' and value='{value_part}'")
+                except:
+                    pass
+        
+        # Try to find associated label
+        if radio_element:
+            try:
+                # Get the 'for' attribute or find label by parent
+                radio_id_attr = radio_element.get_attribute('id')
+                if radio_id_attr:
+                    label_element = driver.find_element(By.CSS_SELECTOR, f"label[for='{radio_id_attr}']")
+            except:
+                try:
+                    # Try finding label that contains the radio
+                    label_element = radio_element.find_element(By.XPATH, "./ancestor::label[1]")
+                except:
+                    pass
+        
+        if not radio_element:
+            raise Exception(f"Could not find radio button with ID: {radio_id}")
         
         # Scroll into view
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", radio_element)
-        human_delay(0.3, 0.6)
+        human_delay(0.5, 1.0)
+        
+        # Check if already selected
+        if radio_element.is_selected():
+            print(f"  ✓ Radio button '{radio_id}' is already selected")
+            return
         
         if use_js:
-            # Try JavaScript method (faster if JS is enabled)
+            # Try JavaScript method first
             try:
+                radio_id_attr = radio_element.get_attribute('id')
                 script = f"""
-                var radio = document.getElementById('{radio_id}');
+                var radio = document.getElementById('{radio_id_attr}');
+                if (!radio) {{
+                    radio = arguments[0];
+                }}
                 if (radio) {{
                     radio.checked = true;
                     var changeEvent = new Event('change', {{ bubbles: true }});
                     radio.dispatchEvent(changeEvent);
                     var clickEvent = new Event('click', {{ bubbles: true }});
                     radio.dispatchEvent(clickEvent);
+                    return radio.checked;
                 }}
+                return false;
                 """
-                driver.execute_script(script)
-                human_delay(0.3, 0.7)
-                # Verify selection
-                is_checked = driver.execute_script(f"return document.getElementById('{radio_id}').checked;")
-                if is_checked:
+                result = driver.execute_script(script, radio_element)
+                human_delay(0.5, 1.0)
+                if result:
+                    print(f"  ✓ Selected via JavaScript")
                     return
-            except:
-                pass  # Fall through to direct method
+            except Exception as e:
+                print(f"  ⚠ JavaScript method failed: {e}, trying click method...")
         
-        # Direct click method (works without JS)
-        # Check if already selected
-        if not radio_element.is_selected():
-            # Move to element and click (human-like)
-            ActionChains(driver).move_to_element(radio_element).pause(
-                random.uniform(0.1, 0.3)
-            ).click().perform()
-            human_delay(0.3, 0.7)
+        # Try clicking the label first (more reliable)
+        if label_element:
+            try:
+                ActionChains(driver).move_to_element(label_element).pause(
+                    random.uniform(0.2, 0.4)
+                ).click().perform()
+                human_delay(0.5, 1.0)
+                if radio_element.is_selected():
+                    print(f"  ✓ Selected by clicking label")
+                    return
+            except Exception as e:
+                print(f"  ⚠ Label click failed: {e}, trying direct radio click...")
+        
+        # Direct click on radio button
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(radio_element))
+        ActionChains(driver).move_to_element(radio_element).pause(
+            random.uniform(0.2, 0.4)
+        ).click().perform()
+        human_delay(0.5, 1.0)
+        
+        # Verify selection
+        if radio_element.is_selected():
+            print(f"  ✓ Radio button selected")
         else:
-            print(f"  Radio button '{radio_id}' is already selected")
+            # Last resort: force via JavaScript
+            driver.execute_script("arguments[0].checked = true; arguments[0].click();", radio_element)
+            human_delay(0.5, 1.0)
+            if not radio_element.is_selected():
+                raise Exception(f"Failed to select radio button '{radio_id}'")
+            print(f"  ✓ Radio button selected via force")
             
     except Exception as e:
-        print(f"Error selecting radio button: {e}")
+        print(f"  ❌ Error selecting radio button: {e}")
         raise
 
 def click_button(driver, button_id, use_js=False):
@@ -292,10 +436,23 @@ def script_second_page():
             use_js=js_enabled
         )
         print("✓ Selected 'Car' option")
-        human_delay(1, 2)
+        human_delay(2, 3)  # Wait longer for dropdown to populate options
         
         # Step 2: Select "Wood Green (London)" from test centre dropdown
         print("\n[Step 4] Selecting 'Wood Green (London)' from test centre dropdown...")
+        # Wait for the test centre dropdown to be available and populated
+        try:
+            test_centre_dropdown = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.ID, 'testcentres'))
+            )
+            # Wait for dropdown to have options loaded
+            WebDriverWait(driver, 15).until(
+                lambda d: len(d.find_elements(By.CSS_SELECTOR, '#testcentres option')) > 1
+            )
+            print("  Test centre dropdown is ready")
+        except Exception as e:
+            print(f"  ⚠ Warning: Could not verify test centre dropdown is ready: {e}")
+        
         select_dropdown_option(
             driver,
             'testcentres',
@@ -307,12 +464,42 @@ def script_second_page():
         
         # Step 3: Select "No" radio button for special needs
         print("\n[Step 5] Selecting 'No' radio button for special needs...")
-        select_radio_button(
-            driver,
-            'specialNeedsChoice-noneeds',  # No option ID
-            use_js=js_enabled
-        )
-        print("✓ Selected 'No' option")
+        # Try multiple possible IDs for the "No" radio button
+        radio_ids = [
+            'specialNeedsChoice-noneeds',
+            'specialNeedsChoice-None',
+            'specialNeedsChoice-no',
+            'specialNeedsChoice-No',
+        ]
+        
+        radio_selected = False
+        for radio_id in radio_ids:
+            try:
+                print(f"  Trying radio button ID: {radio_id}")
+                select_radio_button(
+                    driver,
+                    radio_id,
+                    use_js=js_enabled
+                )
+                print(f"✓ Selected 'No' option using ID: {radio_id}")
+                radio_selected = True
+                break
+            except Exception as e:
+                print(f"  ⚠ Failed with ID '{radio_id}': {e}")
+                continue
+        
+        if not radio_selected:
+            # Try to find the radio button by looking for the "No" option
+            try:
+                no_radio = driver.find_element(By.XPATH, "//input[@type='radio' and contains(@name, 'specialNeedsChoice') and (contains(@value, 'no') or contains(@value, 'none'))]")
+                ActionChains(driver).move_to_element(no_radio).click().perform()
+                human_delay(0.5, 1.0)
+                print("✓ Selected 'No' option by searching")
+                radio_selected = True
+            except Exception as e:
+                print(f"  ❌ Could not find 'No' radio button: {e}")
+                raise
+        
         human_delay(1, 2)
         
         # Step 4: Click the "Book test" button
