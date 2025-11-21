@@ -5,18 +5,93 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import pyautogui
 import pygetwindow as gw
 
+# Firefox and Safari imports (optional - only needed if using those browsers)
+try:
+    from selenium.webdriver.firefox.options import Options as FirefoxOptions
+    FIREFOX_AVAILABLE = True
+except ImportError:
+    FIREFOX_AVAILABLE = False
+    FirefoxOptions = None
+
+try:
+    from selenium.webdriver.safari.options import Options as SafariOptions
+    SAFARI_AVAILABLE = True
+except ImportError:
+    SAFARI_AVAILABLE = False
+    SafariOptions = None
+
 # Disable pyautogui failsafe
 pyautogui.FAILSAFE = False
 
-def human_delay(min_seconds=0.5, max_seconds=1.5):
-    """Add random human-like delay"""
+def human_delay(min_seconds=1.0, max_seconds=3.0):
+    """Add random human-like delay - longer delays to appear more natural"""
     time.sleep(random.uniform(min_seconds, max_seconds))
+
+def longer_human_delay(min_seconds=2.0, max_seconds=5.0):
+    """Add longer human-like delay for major actions"""
+    time.sleep(random.uniform(min_seconds, max_seconds))
+
+def random_mouse_movement(driver):
+    """Perform random mouse movements to simulate human behavior"""
+    try:
+        # Get window size
+        window_size = driver.get_window_size()
+        width = window_size['width']
+        height = window_size['height']
+        
+        # Move to random position with slight offset
+        x = random.randint(width // 4, 3 * width // 4)
+        y = random.randint(height // 4, 3 * height // 4)
+        
+        # Create small random movements
+        for _ in range(random.randint(1, 3)):
+            offset_x = random.randint(-50, 50)
+            offset_y = random.randint(-50, 50)
+            ActionChains(driver).move_by_offset(offset_x, offset_y).perform()
+            time.sleep(random.uniform(0.1, 0.3))
+        
+        # Move back to center
+        ActionChains(driver).move_by_offset(-offset_x, -offset_y).perform()
+        time.sleep(random.uniform(0.1, 0.2))
+    except:
+        pass  # Ignore errors in random movements
+
+def human_type(element, text, typing_speed=(0.08, 0.25)):
+    """Type text character by character with human-like variable speed"""
+    for char in text:
+        element.send_keys(char)
+        # Variable typing speed - sometimes faster, sometimes slower
+        delay = random.uniform(typing_speed[0], typing_speed[1])
+        # Occasionally pause longer (simulating thinking or reading)
+        if random.random() < 0.15:  # 15% chance
+            delay += random.uniform(0.3, 0.8)
+        time.sleep(delay)
+
+def random_scroll(driver):
+    """Perform random scrolling to simulate human reading behavior"""
+    try:
+        scroll_amount = random.randint(50, 200)
+        if random.random() < 0.5:
+            driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+        else:
+            driver.execute_script(f"window.scrollBy(0, -{scroll_amount});")
+        time.sleep(random.uniform(0.3, 0.8))
+    except:
+        pass
+
+def human_like_action_pause():
+    """Pause before major actions as if the user is reading/thinking"""
+    # Random pause with occasional longer pauses
+    if random.random() < 0.3:  # 30% chance of longer pause
+        longer_human_delay(2.0, 4.0)
+    else:
+        human_delay(1.5, 3.0)
 
 def find_chrome_window_with_url(target_url):
     """Find Chrome window that has the target URL open"""
@@ -42,7 +117,7 @@ def find_chrome_window_with_url(target_url):
         return None
 
 def check_port_available(port=9222):
-    """Check if a port is listening (Chrome with remote debugging is running)"""
+    """Check if a port is listening (browser with remote debugging is running)"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -52,57 +127,202 @@ def check_port_available(port=9222):
     except:
         return False
 
-def connect_to_existing_chrome():
-    """Connect to existing Chrome browser using remote debugging"""
-    # First check if port 9222 is accessible
-    print("Checking if Chrome is running with remote debugging...")
-    if not check_port_available(9222):
-        print("\n❌ Chrome is not running with remote debugging enabled!")
-        print("\n⚠ IMPORTANT: You need to start Chrome with remote debugging first.")
-        print("\n📋 Quick fix - Run this command in Terminal:")
-        print("\nFor macOS:")
-        print('  ./start_chrome_debug.sh')
-        print('  or manually:')
-        print('  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir="$HOME/temp/chrome_debug"')
-        print("\nFor Windows:")
-        print('  start_chrome_debug.bat')
-        print('  or manually:')
-        print('  chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\\temp\\chrome_debug"')
+def detect_browser_type():
+    """Detect which browser is running with remote debugging"""
+    # Check common ports for different browsers
+    if check_port_available(9222):
+        return "chrome"  # Chrome uses port 9222
+    elif check_port_available(9223):
+        return "firefox"  # Firefox uses port 9223 (or you can configure it)
+    elif check_port_available(27753):
+        return "safari"  # Safari uses port 27753
+    else:
+        return None
+
+def connect_to_browser(browser_type=None):
+    """Connect to existing browser (Chrome, Firefox, or Safari) using remote debugging"""
+    if browser_type is None:
+        browser_type = detect_browser_type()
+    
+    if browser_type == "chrome":
+        return connect_to_chrome()
+    elif browser_type == "firefox":
+        return connect_to_firefox()
+    elif browser_type == "safari":
+        return connect_to_safari()
+    else:
+        print("\n❌ No browser found with remote debugging enabled!")
+        print("\n⚠ IMPORTANT: You need to start a browser with remote debugging first.")
+        print("\n📋 Available options:")
+        print("\n✅ Chrome (Recommended):")
+        print("  macOS: ./start_chrome_debug.sh")
+        print("  or: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
+        print("\n✅ Firefox:")
+        print("  macOS: /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
+        print("\n⚠ Safari (Limited support on macOS):")
+        print("  Safari needs to be enabled in: Safari → Develop → Allow Remote Automation")
+        print("  Then run: /usr/bin/safaridriver --enable")
         print("\nThen wait a few seconds and run this script again.")
         return None
+
+def connect_to_chrome():
+    """Connect to existing Chrome browser using remote debugging"""
+    print("Checking if Chrome is running with remote debugging...")
+    if not check_port_available(9222):
+        print("\n❌ Chrome is not running with remote debugging on port 9222")
+        return None
     
-    print("✓ Chrome remote debugging port is accessible")
+    print("✓ Chrome remote debugging port (9222) is accessible")
     
     try:
-        # Chrome options for remote debugging
-        chrome_options = Options()
+        chrome_options = ChromeOptions()
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        # When connecting to existing Chrome, we don't need these automation flags
-        # They should have been set when Chrome was started
         
-        # Try to connect
         print("Connecting to Chrome...")
         driver = webdriver.Chrome(options=chrome_options)
-        # Remove webdriver property to avoid detection
+        
+        # Remove automation detection properties (Chrome-specific CDP)
         try:
             driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
                 'source': '''
                     Object.defineProperty(navigator, 'webdriver', {
                         get: () => undefined
-                    })
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en']
+                    });
+                    window.chrome = {
+                        runtime: {}
+                    };
+                    Object.defineProperty(navigator, 'permissions', {
+                        get: () => ({
+                            query: () => Promise.resolve({ state: 'granted' })
+                        })
+                    });
                 '''
             })
         except:
-            pass  # If JS is disabled, this will fail but that's okay
+            pass
+        
         print("✓ Successfully connected to Chrome")
+        human_delay(1.5, 3.0)
         return driver
     except Exception as e:
-        print(f"\n❌ Could not connect to existing Chrome: {e}")
-        print("\n⚠ Make sure:")
-        print("  1. Chrome is started with --remote-debugging-port=9222")
-        print("  2. No other process is using port 9222")
-        print("  3. You have the correct ChromeDriver installed")
+        print(f"\n❌ Could not connect to Chrome: {e}")
         return None
+
+def connect_to_firefox():
+    """Connect to existing Firefox browser using remote debugging"""
+    if not FIREFOX_AVAILABLE or FirefoxOptions is None:
+        print("\n❌ Firefox support not available")
+        print("⚠ Install Firefox WebDriver support or use Chrome instead")
+        print("⚠ Firefox options import failed - use Chrome instead")
+        return None
+        
+    print("Checking if Firefox is running with remote debugging...")
+    # Firefox typically uses port 9223 or can be configured
+    firefox_port = 9223
+    if not check_port_available(firefox_port):
+        print(f"\n❌ Firefox is not running with remote debugging on port {firefox_port}")
+        print("\n⚠ To start Firefox with remote debugging:")
+        print("  /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
+        print("\n⚠ Note: Firefox remote debugging works differently than Chrome")
+        print("⚠ Consider using Chrome for better compatibility")
+        return None
+    
+    print(f"✓ Firefox remote debugging port ({firefox_port}) is accessible")
+    
+    try:
+        print("Connecting to Firefox...")
+        
+        # Firefox uses Marionette protocol, different from Chrome's CDP
+        # Note: Connecting to existing Firefox instance is more complex
+        firefox_options = FirefoxOptions()
+        firefox_options.add_argument("--marionette")
+        
+        # Firefox doesn't support connecting to existing instance the same way as Chrome
+        # You might need to start Firefox programmatically or use different approach
+        print("⚠ Note: Firefox remote debugging requires geckodriver and different setup")
+        print("⚠ This will create a new Firefox instance (not connect to existing)")
+        print("⚠ For best results, use Chrome which supports connecting to existing instances")
+        
+        # Try to create new Firefox instance (won't connect to existing)
+        driver = webdriver.Firefox(options=firefox_options)
+        
+        # Firefox-specific anti-detection
+        try:
+            driver.execute_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+        except:
+            pass
+        
+        print("✓ Connected to Firefox (new instance)")
+        print("⚠ Remember: This is a NEW Firefox window, not your existing one")
+        human_delay(1.5, 3.0)
+        return driver
+    except Exception as e:
+        print(f"\n❌ Could not connect to Firefox: {e}")
+        print("⚠ Firefox requires geckodriver. Install it separately:")
+        print("  macOS: brew install geckodriver")
+        print("  Or download from: https://github.com/mozilla/geckodriver/releases")
+        print("⚠ Recommendation: Use Chrome for easier setup")
+        return None
+
+def connect_to_safari():
+    """Connect to existing Safari browser"""
+    if not SAFARI_AVAILABLE or SafariOptions is None:
+        print("\n❌ Safari support not available")
+        print("⚠ Safari automation requires macOS and specific setup")
+        print("⚠ Safari options import failed - use Chrome or Firefox instead")
+        return None
+        
+    print("Checking Safari support...")
+    
+    try:
+        # Safari requires special setup on macOS
+        safari_options = SafariOptions()
+        safari_options.automatic_inspection = True  # Enable remote debugging
+        
+        print("Connecting to Safari...")
+        print("⚠ Note: Safari requires 'Allow Remote Automation' enabled in Safari → Develop menu")
+        
+        driver = webdriver.Safari(options=safari_options)
+        
+        # Safari anti-detection (limited - Safari has stricter security)
+        try:
+            driver.execute_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+        except:
+            pass
+        
+        print("✓ Successfully connected to Safari")
+        print("⚠ Note: Safari has limited automation capabilities")
+        human_delay(1.5, 3.0)
+        return driver
+    except Exception as e:
+        print(f"\n❌ Could not connect to Safari: {e}")
+        print("\n⚠ Safari Setup Required (macOS only):")
+        print("  1. Enable Develop menu: Safari → Preferences → Advanced → Show Develop menu")
+        print("  2. Enable remote automation: Safari → Develop → Allow Remote Automation")
+        print("  3. Run in Terminal: /usr/bin/safaridriver --enable")
+        print("  4. You may need to enter your password")
+        print("\n⚠ Note: Safari has limited automation capabilities compared to Chrome/Firefox")
+        print("⚠ Recommendation: Use Chrome for best compatibility and easier setup")
+        return None
+
+# Alias for backward compatibility
+def connect_to_existing_chrome():
+    """Backward compatibility - connects to Chrome or auto-detects browser"""
+    return connect_to_browser("chrome")
 
 def select_dropdown_option(driver, select_id, option_value, use_js=False):
     """Select an option from a dropdown, works even if JS is disabled"""
@@ -132,12 +352,23 @@ def select_dropdown_option(driver, select_id, option_value, use_js=False):
         if not select_element:
             raise Exception(f"Could not find dropdown element with ID/name: {select_id}")
         
-        # Scroll into view
+        # Human-like behavior: random mouse movement
+        random_mouse_movement(driver)
+        human_delay(0.8, 1.5)
+        
+        # Scroll into view smoothly
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", select_element)
-        human_delay(0.5, 1.0)
+        human_delay(1.0, 2.0)
+        
+        # Random scroll to appear more natural
+        if random.random() < 0.5:
+            random_scroll(driver)
         
         # Wait for dropdown to be clickable
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable(select_element))
+        
+        # Human-like pause before interaction
+        human_delay(0.8, 1.5)
         
         if use_js:
             # Try JavaScript method first (faster if JS is enabled)
@@ -168,11 +399,11 @@ def select_dropdown_option(driver, select_id, option_value, use_js=False):
             except Exception as e:
                 print(f"  ⚠ JavaScript method failed: {e}, trying direct method...")
         
-        # Click to focus and open dropdown
+        # Human-like click with longer pause
         ActionChains(driver).move_to_element(select_element).pause(
-            random.uniform(0.2, 0.4)
+            random.uniform(0.5, 1.0)
         ).click().perform()
-        human_delay(0.3, 0.5)
+        human_delay(1.0, 2.0)  # Longer delay after clicking
         
         # Try multiple selection methods
         select_obj = Select(select_element)
@@ -245,29 +476,39 @@ def select_autocomplete_option(driver, input_id, search_text, option_text, use_j
         if not input_element:
             raise Exception(f"Could not find autocomplete input with ID: {input_id}")
         
-        # Scroll into view
+        # Human-like behavior: random mouse movement
+        random_mouse_movement(driver)
+        human_delay(1.0, 2.0)
+        
+        # Scroll into view smoothly
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", input_element)
-        human_delay(0.5, 1.0)
+        human_delay(1.5, 2.5)
+        
+        # Random scroll to appear more natural
+        if random.random() < 0.5:
+            random_scroll(driver)
+            human_delay(0.5, 1.0)
         
         # Wait for input to be clickable
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable(input_element))
         
+        # Human-like pause before interacting
+        human_like_action_pause()
+        
         # Clear the input field first
         input_element.clear()
-        human_delay(0.3, 0.5)
+        human_delay(0.8, 1.5)
         
-        # Click to focus
+        # Click to focus with human-like movement
         ActionChains(driver).move_to_element(input_element).pause(
-            random.uniform(0.2, 0.4)
+            random.uniform(0.8, 1.5)
         ).click().perform()
-        human_delay(0.3, 0.5)
+        human_delay(1.0, 2.0)  # Pause after clicking
         
-        # Type the search text (character by character for more human-like behavior)
-        for char in search_text:
-            input_element.send_keys(char)
-            time.sleep(random.uniform(0.05, 0.15))
+        # Type the search text using human-like typing function
+        human_type(input_element, search_text, typing_speed=(0.12, 0.30))
         
-        human_delay(1.0, 1.5)  # Wait for autocomplete to appear
+        human_delay(2.0, 3.5)  # Wait longer for autocomplete to appear
         
         # Wait for autocomplete dropdown to appear and be visible
         # Try multiple selectors for the autocomplete dropdown
@@ -361,11 +602,11 @@ def select_autocomplete_option(driver, input_id, search_text, option_text, use_j
         if not option_element:
             raise Exception(f"Could not find autocomplete option with text: '{option_text}'. Make sure you typed '{search_text}' and the dropdown appeared.")
         
-        # Click on the option
+        # Human-like hover before clicking
         ActionChains(driver).move_to_element(option_element).pause(
-            random.uniform(0.2, 0.4)
-        ).click().perform()
-        human_delay(0.8, 1.2)
+            random.uniform(0.8, 1.5)
+        ).pause(random.uniform(0.3, 0.7)).click().perform()
+        human_delay(1.5, 3.0)  # Longer delay after selection
         
         # Verify selection by checking if input value contains the option text
         input_value = input_element.get_attribute('value')
@@ -440,9 +681,21 @@ def select_radio_button(driver, radio_id, use_js=False):
         if not radio_element:
             raise Exception(f"Could not find radio button with ID: {radio_id}")
         
-        # Scroll into view
+        # Human-like behavior: random mouse movement
+        random_mouse_movement(driver)
+        human_delay(1.0, 2.0)
+        
+        # Scroll into view smoothly
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", radio_element)
-        human_delay(0.5, 1.0)
+        human_delay(1.5, 2.5)
+        
+        # Random scroll to appear more natural
+        if random.random() < 0.5:
+            random_scroll(driver)
+            human_delay(0.5, 1.0)
+        
+        # Human-like pause before checking/interacting
+        human_delay(0.8, 1.5)
         
         # Check if already selected
         if radio_element.is_selected():
@@ -489,12 +742,12 @@ def select_radio_button(driver, radio_id, use_js=False):
             except Exception as e:
                 print(f"  ⚠ Label click failed: {e}, trying direct radio click...")
         
-        # Direct click on radio button
+        # Direct click on radio button with human-like movement
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable(radio_element))
         ActionChains(driver).move_to_element(radio_element).pause(
-            random.uniform(0.2, 0.4)
-        ).click().perform()
-        human_delay(0.5, 1.0)
+            random.uniform(0.8, 1.5)
+        ).pause(random.uniform(0.3, 0.7)).click().perform()
+        human_delay(1.5, 2.5)  # Longer delay after clicking
         
         # Verify selection
         if radio_element.is_selected():
@@ -530,15 +783,27 @@ def click_button(driver, button_id, use_js=False):
                 EC.element_to_be_clickable((By.ID, button_id))
             )
             
-            # Scroll into view if needed
-            driver.execute_script("arguments[0].scrollIntoView(true);", button_element)
-            human_delay(0.2, 0.4)
+            # Human-like behavior: random mouse movement
+            random_mouse_movement(driver)
+            human_delay(1.0, 2.0)
             
-            # Move to element and click (human-like)
+            # Scroll into view smoothly
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button_element)
+            human_delay(1.5, 2.5)
+            
+            # Random scroll to appear more natural
+            if random.random() < 0.5:
+                random_scroll(driver)
+                human_delay(0.5, 1.0)
+            
+            # Human-like pause before clicking
+            human_delay(1.0, 2.0)
+            
+            # Move to element and click (human-like with longer pause)
             ActionChains(driver).move_to_element(button_element).pause(
-                random.uniform(0.2, 0.5)
-            ).click().perform()
-            human_delay(0.5, 1.0)
+                random.uniform(1.0, 2.0)
+            ).pause(random.uniform(0.5, 1.0)).click().perform()
+            human_delay(2.0, 3.5)  # Longer delay after clicking button
             
     except Exception as e:
         print(f"Error clicking button: {e}")
@@ -565,14 +830,15 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Connect to existing Chrome browser
-    print("\n[Step 1] Connecting to existing Chrome browser...")
-    driver = connect_to_existing_chrome()
+    # Connect to existing browser (auto-detects Chrome, Firefox, or Safari)
+    print("\n[Step 1] Connecting to browser...")
+    print("Detecting browser type...")
+    driver = connect_to_browser()  # Auto-detect browser
     
     if not driver:
-        print("❌ Failed to connect to Chrome browser")
-        print("\nPlease start Chrome with remote debugging enabled:")
-        print('chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\\temp\\chrome_debug"')
+        print("❌ Failed to connect to browser")
+        print("\nPlease start a browser with remote debugging enabled.")
+        print("See connection error messages above for browser-specific instructions.")
         return False
     
     # Verify we're on the correct page
@@ -580,7 +846,10 @@ def script_second_page():
     if not verify_page_loaded(driver, 'driver-services.dvsa.gov.uk/obs-web/pages/home'):
         print("⚠ Warning: May not be on the correct page, continuing anyway...")
     
-    human_delay(1, 2)
+    # Human-like behavior: random scrolling and mouse movement to simulate reading
+    random_scroll(driver)
+    random_mouse_movement(driver)
+    longer_human_delay(3.0, 6.0)  # Longer initial delay as if reading the page
     
     # Check if JavaScript is enabled
     try:
@@ -593,6 +862,9 @@ def script_second_page():
     try:
         # Step 1: Select "Car" from the business booking test category dropdown
         print("\n[Step 3] Selecting 'Car' option from test category dropdown...")
+        # Human-like pause before action
+        human_like_action_pause()
+        random_scroll(driver)  # Random scroll before interaction
         select_dropdown_option(
             driver, 
             'businessBookingTestCategoryRecordId', 
@@ -600,10 +872,16 @@ def script_second_page():
             use_js=js_enabled
         )
         print("✓ Selected 'Car' option")
-        human_delay(2, 3)  # Wait longer for dropdown to populate options
+        # Longer delay after selection with random behavior
+        random_mouse_movement(driver)
+        longer_human_delay(3.0, 5.0)  # Wait longer for dropdown to populate options
         
         # Step 2: Select "Wood Green (London)" from test centre autocomplete
         print("\n[Step 4] Selecting 'Wood Green (London)' from test centre autocomplete...")
+        # Human-like pause before action
+        human_like_action_pause()
+        random_scroll(driver)  # Random scroll before interaction
+        
         # Wait for the autocomplete input to be available
         try:
             test_centre_input = WebDriverWait(driver, 15).until(
@@ -622,10 +900,16 @@ def script_second_page():
             use_js=js_enabled
         )
         print("✓ Selected 'Wood Green (London)' option")
-        human_delay(1, 2)
+        # Longer delay after selection with random behavior
+        random_mouse_movement(driver)
+        longer_human_delay(3.0, 5.0)
         
         # Step 3: Select "No" radio button for special needs
         print("\n[Step 5] Selecting 'No' radio button for special needs...")
+        # Human-like pause before action
+        human_like_action_pause()
+        random_scroll(driver)  # Random scroll before interaction
+        
         # Try multiple possible IDs for the "No" radio button
         radio_ids = [
             'specialNeedsChoice-noneeds',
@@ -648,30 +932,43 @@ def script_second_page():
                 break
             except Exception as e:
                 print(f"  ⚠ Failed with ID '{radio_id}': {e}")
+                human_delay(1.0, 2.0)  # Pause between attempts
                 continue
         
         if not radio_selected:
             # Try to find the radio button by looking for the "No" option
             try:
+                human_delay(1.0, 2.0)  # Pause before fallback
                 no_radio = driver.find_element(By.XPATH, "//input[@type='radio' and contains(@name, 'specialNeedsChoice') and (contains(@value, 'no') or contains(@value, 'none'))]")
-                ActionChains(driver).move_to_element(no_radio).click().perform()
-                human_delay(0.5, 1.0)
+                ActionChains(driver).move_to_element(no_radio).pause(
+                    random.uniform(0.8, 1.5)
+                ).click().perform()
+                human_delay(1.5, 2.5)
                 print("✓ Selected 'No' option by searching")
                 radio_selected = True
             except Exception as e:
                 print(f"  ❌ Could not find 'No' radio button: {e}")
                 raise
         
-        human_delay(1, 2)
+        # Longer delay after selection with random behavior
+        random_mouse_movement(driver)
+        longer_human_delay(3.0, 5.0)
         
         # Step 4: Click the "Book test" button
         print("\n[Step 6] Clicking 'Book test' button...")
+        # Human-like pause before final action
+        human_like_action_pause()
+        random_scroll(driver)  # Random scroll before clicking
+        random_mouse_movement(driver)  # Random mouse movement
+        
         click_button(
             driver,
             'submitSlotSearch',  # Book test button ID
             use_js=js_enabled
         )
         print("✓ Clicked 'Book test' button")
+        # Longer delay after clicking
+        longer_human_delay(2.0, 4.0)
         
         print("\n" + "=" * 60)
         print("✓ First part of scripting completed successfully!")
