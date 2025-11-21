@@ -77,9 +77,8 @@ def connect_to_existing_chrome():
         # Chrome options for remote debugging
         chrome_options = Options()
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
+        # When connecting to existing Chrome, we don't need these automation flags
+        # They should have been set when Chrome was started
         
         # Try to connect
         print("Connecting to Chrome...")
