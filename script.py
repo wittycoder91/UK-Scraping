@@ -11,20 +11,13 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import pyautogui
 import pygetwindow as gw
 
-# Firefox and Safari imports (optional - only needed if using those browsers)
+# Firefox imports (optional - only needed if using Firefox)
 try:
     from selenium.webdriver.firefox.options import Options as FirefoxOptions
     FIREFOX_AVAILABLE = True
 except ImportError:
     FIREFOX_AVAILABLE = False
     FirefoxOptions = None
-
-try:
-    from selenium.webdriver.safari.options import Options as SafariOptions
-    SAFARI_AVAILABLE = True
-except ImportError:
-    SAFARI_AVAILABLE = False
-    SafariOptions = None
 
 # Disable pyautogui failsafe
 pyautogui.FAILSAFE = False
@@ -134,15 +127,11 @@ def detect_browser_type():
         return "chrome"  # Chrome uses port 9222
     elif check_port_available(9223):
         return "firefox"  # Firefox uses port 9223 (or you can configure it)
-    elif check_port_available(27753):
-        return "safari"  # Safari uses port 27753 (rarely used)
     else:
-        # Safari doesn't use a detectable port, so we'll try it as fallback
-        # User can explicitly request Safari or it will be tried automatically
-        return "try_safari"  # Special flag to try Safari
+        return None
 
 def connect_to_browser(browser_type=None):
-    """Connect to existing browser (Chrome, Firefox, or Safari) using remote debugging"""
+    """Connect to existing browser (Chrome or Firefox) using remote debugging"""
     if browser_type is None:
         browser_type = detect_browser_type()
     
@@ -150,16 +139,7 @@ def connect_to_browser(browser_type=None):
         return connect_to_chrome()
     elif browser_type == "firefox":
         return connect_to_firefox()
-    elif browser_type == "safari":
-        return connect_to_safari()
-    elif browser_type == "try_safari":
-        # Try Safari as fallback (Safari doesn't use detectable ports)
-        print("\n⚠ No Chrome/Firefox detected. Trying Safari...")
-        safari_driver = connect_to_safari()
-        if safari_driver:
-            return safari_driver
-        
-        # If Safari also fails, show all options
+    else:
         print("\n❌ No browser found with remote debugging enabled!")
         print("\n⚠ IMPORTANT: You need to start a browser with remote debugging first.")
         print("\n📋 Available options:")
@@ -168,16 +148,7 @@ def connect_to_browser(browser_type=None):
         print("  or: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
         print("\n✅ Firefox:")
         print("  macOS: /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
-        print("\n✅ Safari (For macOS users):")
-        print("  1. Enable Develop menu: Safari → Preferences → Advanced → Show Develop menu")
-        print("  2. Enable remote automation: Safari → Develop → Allow Remote Automation")
-        print("  3. Run in Terminal: /usr/bin/safaridriver --enable")
-        print("  4. Make sure Safari is open and navigate to the DVSA website")
-        print("  5. Run the script again")
         print("\nThen wait a few seconds and run this script again.")
-        return None
-    else:
-        print("\n❌ Invalid browser type specified")
         return None
 
 def connect_to_chrome():
@@ -287,79 +258,6 @@ def connect_to_firefox():
         print("  macOS: brew install geckodriver")
         print("  Or download from: https://github.com/mozilla/geckodriver/releases")
         print("⚠ Recommendation: Use Chrome for easier setup")
-        return None
-
-def connect_to_safari():
-    """Connect to existing Safari browser"""
-    if not SAFARI_AVAILABLE or SafariOptions is None:
-        print("\n❌ Safari support not available")
-        print("⚠ Safari automation requires macOS and Selenium 4.x")
-        print("⚠ Safari options import failed - use Chrome or Firefox instead")
-        return None
-        
-    print("Checking Safari support...")
-    print("⚠ Note: Safari doesn't require port detection - it connects directly")
-    
-    try:
-        # Safari requires special setup on macOS
-        safari_options = SafariOptions()
-        safari_options.automatic_inspection = True  # Enable remote debugging
-        
-        print("Connecting to Safari...")
-        print("⚠ Make sure:")
-        print("  1. Safari is open and running")
-        print("  2. 'Allow Remote Automation' is enabled in Safari → Develop menu")
-        print("  3. You've run: /usr/bin/safaridriver --enable")
-        
-        driver = webdriver.Safari(options=safari_options)
-        
-        # Verify connection by checking current URL
-        try:
-            current_url = driver.current_url
-            print(f"✓ Successfully connected to Safari (Current page: {current_url[:50]}...)")
-        except:
-            print("✓ Successfully connected to Safari")
-        
-        # Safari anti-detection (limited - Safari has stricter security)
-        try:
-            driver.execute_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-            """)
-        except:
-            pass
-        
-        print("⚠ Note: Safari has limited automation capabilities compared to Chrome")
-        human_delay(1.5, 3.0)
-        return driver
-    except Exception as e:
-        error_msg = str(e).lower()
-        print(f"\n❌ Could not connect to Safari: {e}")
-        
-        # Provide specific error messages
-        if "safaridriver" in error_msg or "remote automation" in error_msg:
-            print("\n⚠ Safari Setup Required:")
-            print("  1. Open Safari → Preferences → Advanced")
-            print("  2. Check 'Show Develop menu in menu bar'")
-            print("  3. Safari → Develop → Check 'Allow Remote Automation'")
-            print("  4. Run in Terminal (you may need to enter your password):")
-            print("     /usr/bin/safaridriver --enable")
-            print("  5. Close Safari completely and reopen it")
-            print("  6. Make sure Safari is open before running this script")
-        elif "already running" in error_msg or "connection refused" in error_msg:
-            print("\n⚠ Safari Connection Issue:")
-            print("  - Make sure Safari is open")
-            print("  - Try closing Safari completely and reopening it")
-            print("  - Make sure no other process is using Safari WebDriver")
-        else:
-            print("\n⚠ Safari Setup Checklist:")
-            print("  1. Enable Develop menu: Safari → Preferences → Advanced → Show Develop menu")
-            print("  2. Enable remote automation: Safari → Develop → Allow Remote Automation")
-            print("  3. Run: /usr/bin/safaridriver --enable")
-            print("  4. Make sure Safari is open and navigate to the DVSA website")
-        
-        print("\n⚠ Alternative: Use Chrome for easier setup (./start_chrome_debug.sh)")
         return None
 
 # Alias for backward compatibility
@@ -873,7 +771,7 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Connect to existing browser (auto-detects Chrome, Firefox, or Safari)
+    # Connect to existing browser (auto-detects Chrome or Firefox)
     print("\n[Step 1] Connecting to browser...")
     print("Detecting browser type...")
     driver = connect_to_browser()  # Auto-detect browser
