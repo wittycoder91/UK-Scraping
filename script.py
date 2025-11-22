@@ -194,6 +194,30 @@ def connect_to_chrome():
             pass
         
         print("✓ Successfully connected to Chrome")
+        
+        # Try to find and switch to the correct tab if multiple tabs are open
+        try:
+            current_url = driver.current_url
+            if 'driver-services.dvsa.gov.uk' in current_url:
+                print(f"✓ Found DVSA page in current tab: {current_url}")
+            else:
+                print(f"Current tab URL: {current_url}")
+                print("Looking for DVSA tab in other windows...")
+                # Get all window handles
+                all_handles = driver.window_handles
+                found_tab = False
+                for handle in all_handles:
+                    driver.switch_to.window(handle)
+                    if 'driver-services.dvsa.gov.uk' in driver.current_url:
+                        print(f"✓ Found DVSA page in another tab, switched to it")
+                        found_tab = True
+                        break
+                if not found_tab:
+                    print("⚠ Could not find DVSA page in any open tabs")
+                    print("⚠ Please make sure the DVSA booking page is open in your browser")
+        except Exception as e:
+            print(f"⚠ Could not check tabs: {e}")
+        
         human_delay(1.5, 3.0)
         return driver
     except Exception as e:
@@ -822,31 +846,27 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Launch new Chrome browser (normal mode - no debugging required)
-    print("\n[Step 1] Launching browser...")
-    driver = launch_new_chrome()
+    # Connect to existing browser tab (requires remote debugging)
+    print("\n[Step 1] Connecting to existing browser tab...")
+    print("Looking for Chrome browser with remote debugging enabled...")
+    driver = connect_to_browser()  # Connect to existing browser
     
     if not driver:
-        print("❌ Failed to launch browser")
-        print("\nPlease make sure ChromeDriver is installed and accessible.")
-        return False
-    
-    # Navigate to the target URL
-    print("\n[Step 2] Navigating to DVSA booking page...")
-    target_url = "https://driver-services.dvsa.gov.uk/obs-web/pages/home"
-    try:
-        driver.get(target_url)
-        print(f"✓ Navigated to: {target_url}")
-        human_delay(3.0, 5.0)  # Wait for page to load
-    except Exception as e:
-        print(f"❌ Failed to navigate to page: {e}")
-        driver.quit()
+        print("❌ Failed to connect to existing browser")
+        print("\n⚠ IMPORTANT: To use an existing browser tab, you need to:")
+        print("1. Start Chrome with remote debugging enabled:")
+        print("   Windows: chrome.exe --remote-debugging-port=9222 --user-data-dir=\"C:\\temp\\chrome_debug\"")
+        print("   macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
+        print("2. Open the DVSA booking page in that browser")
+        print("3. Then run this script again")
         return False
     
     # Verify we're on the correct page
-    print("\n[Step 3] Verifying page...")
+    print("\n[Step 2] Verifying page...")
     if not verify_page_loaded(driver, 'driver-services.dvsa.gov.uk/obs-web/pages/home'):
-        print("⚠ Warning: May not be on the correct page, continuing anyway...")
+        print("⚠ Warning: May not be on the correct page")
+        print("⚠ Please make sure you have the DVSA booking page open in your browser")
+        print("⚠ Continuing anyway...")
     
     # Human-like behavior: random scrolling and mouse movement to simulate reading
     random_scroll(driver)
@@ -863,7 +883,7 @@ def script_second_page():
     
     try:
         # Step 1: Select "Car" from the business booking test category dropdown
-        print("\n[Step 4] Selecting 'Car' option from test category dropdown...")
+        print("\n[Step 3] Selecting 'Car' option from test category dropdown...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -879,7 +899,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)  # Wait longer for dropdown to populate options
         
         # Step 2: Select "Wood Green (London)" from test centre autocomplete
-        print("\n[Step 5] Selecting 'Wood Green (London)' from test centre autocomplete...")
+        print("\n[Step 4] Selecting 'Wood Green (London)' from test centre autocomplete...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -907,7 +927,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 3: Select "No" radio button for special needs
-        print("\n[Step 6] Selecting 'No' radio button for special needs...")
+        print("\n[Step 5] Selecting 'No' radio button for special needs...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -957,7 +977,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 4: Click the "Book test" button
-        print("\n[Step 7] Clicking 'Book test' button...")
+        print("\n[Step 6] Clicking 'Book test' button...")
         # Human-like pause before final action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before clicking
