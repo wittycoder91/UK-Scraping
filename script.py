@@ -265,6 +265,57 @@ def connect_to_existing_chrome():
     """Backward compatibility - connects to Chrome or auto-detects browser"""
     return connect_to_browser("chrome")
 
+def launch_new_chrome():
+    """Launch a new Chrome browser instance (normal mode - no debugging required)"""
+    print("Launching new Chrome browser...")
+    
+    try:
+        chrome_options = ChromeOptions()
+        # Add anti-detection options
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Optional: Add user agent to appear more natural
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        print("Creating Chrome driver...")
+        driver = webdriver.Chrome(options=chrome_options)
+        
+        # Remove automation detection properties (Chrome-specific CDP)
+        try:
+            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en']
+                    });
+                    window.chrome = {
+                        runtime: {}
+                    };
+                    Object.defineProperty(navigator, 'permissions', {
+                        get: () => ({
+                            query: () => Promise.resolve({ state: 'granted' })
+                        })
+                    });
+                '''
+            })
+        except:
+            pass
+        
+        print("✓ Chrome browser launched successfully")
+        human_delay(1.5, 3.0)
+        return driver
+    except Exception as e:
+        print(f"\n❌ Could not launch Chrome: {e}")
+        print("⚠ Make sure ChromeDriver is installed and in your PATH")
+        return None
+
 def select_dropdown_option(driver, select_id, option_value, use_js=False):
     """Select an option from a dropdown, works even if JS is disabled"""
     try:
@@ -771,19 +822,29 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Connect to existing browser (auto-detects Chrome or Firefox)
-    print("\n[Step 1] Connecting to browser...")
-    print("Detecting browser type...")
-    driver = connect_to_browser()  # Auto-detect browser
+    # Launch new Chrome browser (normal mode - no debugging required)
+    print("\n[Step 1] Launching browser...")
+    driver = launch_new_chrome()
     
     if not driver:
-        print("❌ Failed to connect to browser")
-        print("\nPlease start a browser with remote debugging enabled.")
-        print("See connection error messages above for browser-specific instructions.")
+        print("❌ Failed to launch browser")
+        print("\nPlease make sure ChromeDriver is installed and accessible.")
+        return False
+    
+    # Navigate to the target URL
+    print("\n[Step 2] Navigating to DVSA booking page...")
+    target_url = "https://driver-services.dvsa.gov.uk/obs-web/pages/home"
+    try:
+        driver.get(target_url)
+        print(f"✓ Navigated to: {target_url}")
+        human_delay(3.0, 5.0)  # Wait for page to load
+    except Exception as e:
+        print(f"❌ Failed to navigate to page: {e}")
+        driver.quit()
         return False
     
     # Verify we're on the correct page
-    print("\n[Step 2] Verifying page...")
+    print("\n[Step 3] Verifying page...")
     if not verify_page_loaded(driver, 'driver-services.dvsa.gov.uk/obs-web/pages/home'):
         print("⚠ Warning: May not be on the correct page, continuing anyway...")
     
@@ -802,7 +863,7 @@ def script_second_page():
     
     try:
         # Step 1: Select "Car" from the business booking test category dropdown
-        print("\n[Step 3] Selecting 'Car' option from test category dropdown...")
+        print("\n[Step 4] Selecting 'Car' option from test category dropdown...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -818,7 +879,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)  # Wait longer for dropdown to populate options
         
         # Step 2: Select "Wood Green (London)" from test centre autocomplete
-        print("\n[Step 4] Selecting 'Wood Green (London)' from test centre autocomplete...")
+        print("\n[Step 5] Selecting 'Wood Green (London)' from test centre autocomplete...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -846,7 +907,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 3: Select "No" radio button for special needs
-        print("\n[Step 5] Selecting 'No' radio button for special needs...")
+        print("\n[Step 6] Selecting 'No' radio button for special needs...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -896,7 +957,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 4: Click the "Book test" button
-        print("\n[Step 6] Clicking 'Book test' button...")
+        print("\n[Step 7] Clicking 'Book test' button...")
         # Human-like pause before final action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before clicking
