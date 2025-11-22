@@ -1,6 +1,9 @@
 import time
 import random
 import socket
+import subprocess
+import platform
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
@@ -130,7 +133,86 @@ def detect_browser_type():
     else:
         return None
 
-def connect_to_browser(browser_type=None):
+def start_chrome_with_debugging():
+    """Automatically start Chrome with remote debugging enabled"""
+    print("Attempting to start Chrome with remote debugging...")
+    
+    system = platform.system()
+    user_data_dir = None
+    
+    if system == "Darwin":  # macOS
+        chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        user_data_dir = os.path.expanduser("~/temp/chrome_debug")
+    elif system == "Windows":
+        # Try common Chrome installation paths on Windows
+        possible_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
+        ]
+        chrome_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                chrome_path = path
+                break
+        user_data_dir = os.path.expanduser(r"~\temp\chrome_debug")
+    else:  # Linux
+        chrome_path = "google-chrome"  # or "chromium-browser"
+        user_data_dir = os.path.expanduser("~/temp/chrome_debug")
+    
+    if not chrome_path or (system != "Linux" and not os.path.exists(chrome_path)):
+        print(f"❌ Could not find Chrome executable")
+        print(f"Please start Chrome manually with: --remote-debugging-port=9222")
+        return False
+    
+    # Create user data directory if it doesn't exist
+    try:
+        os.makedirs(user_data_dir, exist_ok=True)
+    except Exception as e:
+        print(f"⚠ Warning: Could not create user data directory: {e}")
+    
+    # Start Chrome with remote debugging
+    try:
+        cmd = [
+            chrome_path,
+            "--remote-debugging-port=9222",
+            f"--user-data-dir={user_data_dir}",
+            "--no-first-run",
+            "--no-default-browser-check"
+        ]
+        
+        print(f"Starting Chrome: {' '.join(cmd)}")
+        # Start Chrome in background (detached process)
+        if system == "Windows":
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        print("✓ Chrome started with remote debugging")
+        print("ℹ Note: This Chrome instance uses a separate profile, so it won't affect your normal Chrome")
+        print("ℹ You can use tabs in this Chrome window, or navigate to your page")
+        print("Waiting for Chrome to initialize...")
+        time.sleep(3)  # Wait for Chrome to start
+        
+        # Verify port is now available
+        if check_port_available(9222):
+            print("✓ Chrome remote debugging is ready")
+            return True
+        else:
+            print("⚠ Chrome started but remote debugging port not yet available")
+            print("Waiting a bit longer...")
+            time.sleep(3)
+            if check_port_available(9222):
+                print("✓ Chrome remote debugging is now ready")
+                return True
+            else:
+                print("❌ Chrome started but remote debugging port still not available")
+                return False
+    except Exception as e:
+        print(f"❌ Failed to start Chrome: {e}")
+        return False
+
+def connect_to_browser(browser_type=None, auto_start=True):
     """Connect to existing browser (Chrome or Firefox) using remote debugging"""
     if browser_type is None:
         browser_type = detect_browser_type()
@@ -140,16 +222,35 @@ def connect_to_browser(browser_type=None):
     elif browser_type == "firefox":
         return connect_to_firefox()
     else:
-        print("\n❌ No browser found with remote debugging enabled!")
-        print("\n⚠ IMPORTANT: You need to start a browser with remote debugging first.")
-        print("\n📋 Available options:")
-        print("\n✅ Chrome (Recommended - Easiest):")
-        print("  macOS: ./start_chrome_debug.sh")
-        print("  or: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
-        print("\n✅ Firefox:")
-        print("  macOS: /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
-        print("\nThen wait a few seconds and run this script again.")
-        return None
+        # No browser found with debugging
+        if auto_start:
+            print("\n⚠ No browser found with remote debugging enabled")
+            print("Attempting to start Chrome automatically...")
+            if start_chrome_with_debugging():
+                # Try connecting again
+                time.sleep(2)
+                return connect_to_chrome()
+            else:
+                print("\n❌ Could not start Chrome automatically")
+                print("\nPlease start Chrome manually with remote debugging:")
+                if platform.system() == "Darwin":  # macOS
+                    print("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
+                elif platform.system() == "Windows":
+                    print("  chrome.exe --remote-debugging-port=9222 --user-data-dir=\"C:\\temp\\chrome_debug\"")
+                else:
+                    print("  google-chrome --remote-debugging-port=9222 --user-data-dir=\"~/temp/chrome_debug\"")
+                return None
+        else:
+            print("\n❌ No browser found with remote debugging enabled!")
+            print("\n⚠ IMPORTANT: You need to start a browser with remote debugging first.")
+            print("\n📋 Available options:")
+            print("\n✅ Chrome (Recommended - Easiest):")
+            print("  macOS: ./start_chrome_debug.sh")
+            print("  or: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
+            print("\n✅ Firefox:")
+            print("  macOS: /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
+            print("\nThen wait a few seconds and run this script again.")
+            return None
 
 def connect_to_chrome():
     """Connect to existing Chrome browser using remote debugging"""
@@ -846,26 +947,46 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Connect to existing browser tab (requires remote debugging)
-    print("\n[Step 1] Connecting to existing browser tab...")
+    # Connect to existing browser tab (auto-starts Chrome with debugging if needed)
+    print("\n[Step 1] Connecting to browser...")
     print("Looking for Chrome browser with remote debugging enabled...")
-    driver = connect_to_browser()  # Connect to existing browser
+    driver = connect_to_browser(auto_start=True)  # Auto-start Chrome if needed
     
     if not driver:
-        print("❌ Failed to connect to existing browser")
-        print("\n⚠ IMPORTANT: To use an existing browser tab, you need to:")
-        print("1. Start Chrome with remote debugging enabled:")
-        print("   Windows: chrome.exe --remote-debugging-port=9222 --user-data-dir=\"C:\\temp\\chrome_debug\"")
-        print("   macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
-        print("2. Open the DVSA booking page in that browser")
-        print("3. Then run this script again")
+        print("❌ Failed to connect to browser")
         return False
     
+    # Check if we're on the correct page, if not try to find it or navigate to it
+    print("\n[Step 2] Checking current page...")
+    current_url = driver.current_url
+    target_url = "https://driver-services.dvsa.gov.uk/obs-web/pages/home"
+    
+    if 'driver-services.dvsa.gov.uk' in current_url:
+        print(f"✓ Found DVSA page: {current_url}")
+        if 'obs-web/pages/home' not in current_url:
+            print("⚠ Not on the booking form page, navigating...")
+            try:
+                driver.get(target_url)
+                print(f"✓ Navigated to: {target_url}")
+                human_delay(3.0, 5.0)
+            except Exception as e:
+                print(f"⚠ Could not navigate: {e}")
+    else:
+        print(f"Current URL: {current_url}")
+        print("DVSA page not found, navigating to booking page...")
+        try:
+            driver.get(target_url)
+            print(f"✓ Navigated to: {target_url}")
+            human_delay(3.0, 5.0)
+        except Exception as e:
+            print(f"⚠ Could not navigate: {e}")
+            print("⚠ Please manually navigate to the DVSA booking page")
+    
     # Verify we're on the correct page
-    print("\n[Step 2] Verifying page...")
+    print("\n[Step 3] Verifying page...")
     if not verify_page_loaded(driver, 'driver-services.dvsa.gov.uk/obs-web/pages/home'):
         print("⚠ Warning: May not be on the correct page")
-        print("⚠ Please make sure you have the DVSA booking page open in your browser")
+        print("⚠ Please make sure you have the DVSA booking page open")
         print("⚠ Continuing anyway...")
     
     # Human-like behavior: random scrolling and mouse movement to simulate reading
@@ -883,7 +1004,7 @@ def script_second_page():
     
     try:
         # Step 1: Select "Car" from the business booking test category dropdown
-        print("\n[Step 3] Selecting 'Car' option from test category dropdown...")
+        print("\n[Step 4] Selecting 'Car' option from test category dropdown...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -899,7 +1020,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)  # Wait longer for dropdown to populate options
         
         # Step 2: Select "Wood Green (London)" from test centre autocomplete
-        print("\n[Step 4] Selecting 'Wood Green (London)' from test centre autocomplete...")
+        print("\n[Step 5] Selecting 'Wood Green (London)' from test centre autocomplete...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -927,7 +1048,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 3: Select "No" radio button for special needs
-        print("\n[Step 5] Selecting 'No' radio button for special needs...")
+        print("\n[Step 6] Selecting 'No' radio button for special needs...")
         # Human-like pause before action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before interaction
@@ -977,7 +1098,7 @@ def script_second_page():
         longer_human_delay(3.0, 5.0)
         
         # Step 4: Click the "Book test" button
-        print("\n[Step 6] Clicking 'Book test' button...")
+        print("\n[Step 7] Clicking 'Book test' button...")
         # Human-like pause before final action
         human_like_action_pause()
         random_scroll(driver)  # Random scroll before clicking
