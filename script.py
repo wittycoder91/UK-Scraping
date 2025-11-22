@@ -959,6 +959,577 @@ def verify_page_loaded(driver, target_url):
         print(f"Error verifying page: {e}")
         return False
 
+def wait_for_page_load(driver, timeout=15):
+    """Wait for page to load completely"""
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+        human_delay(2.0, 4.0)  # Additional human-like delay
+        return True
+    except:
+        return False
+
+def handle_timeout_dialog(driver):
+    """Check for and handle the timeout expiration dialog"""
+    try:
+        # Check if the timeout dialog is present
+        try:
+            # Look for the "Okay, thanks" button with id="slotTimeoutClose"
+            timeout_button = WebDriverWait(driver, 2).until(
+                EC.presence_of_element_located((By.ID, "slotTimeoutClose"))
+            )
+            
+            if timeout_button.is_displayed():
+                print("  ⚠ Timeout dialog detected - clicking 'Okay, thanks' button...")
+                
+                # Human-like pause before clicking
+                human_delay(1.5, 2.5)
+                random_mouse_movement(driver)
+                
+                # Scroll into view if needed
+                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", timeout_button)
+                human_delay(1.0, 2.0)
+                
+                # Wait for button to be clickable
+                WebDriverWait(driver, 5).until(EC.element_to_be_clickable(timeout_button))
+                
+                # Human-like click
+                ActionChains(driver).move_to_element(timeout_button).pause(
+                    random.uniform(1.0, 2.0)
+                ).click().perform()
+                
+                print("  ✓ Clicked 'Okay, thanks' button")
+                
+                # Wait for dialog to close and page to update
+                wait_for_page_load(driver)
+                longer_human_delay(2.0, 4.0)
+                
+                return True
+        except TimeoutException:
+            # Dialog not present, which is fine
+            return False
+        except Exception as e:
+            # Try alternative selector
+            try:
+                # Try finding by class
+                timeout_button = driver.find_element(By.CSS_SELECTOR, "a.closeDialogAction#slotTimeoutClose")
+                if timeout_button.is_displayed():
+                    print("  ⚠ Timeout dialog detected (alternative selector) - clicking 'Okay, thanks' button...")
+                    human_delay(1.5, 2.5)
+                    ActionChains(driver).move_to_element(timeout_button).pause(
+                        random.uniform(1.0, 2.0)
+                    ).click().perform()
+                    print("  ✓ Clicked 'Okay, thanks' button")
+                    wait_for_page_load(driver)
+                    longer_human_delay(2.0, 4.0)
+                    return True
+            except:
+                pass
+            
+            # If button not found by ID, try JavaScript click
+            try:
+                timeout_button = driver.find_element(By.ID, "slotTimeoutClose")
+                if timeout_button:
+                    print("  ⚠ Timeout dialog detected - clicking via JavaScript...")
+                    driver.execute_script("arguments[0].click();", timeout_button)
+                    wait_for_page_load(driver)
+                    longer_human_delay(2.0, 4.0)
+                    print("  ✓ Clicked 'Okay, thanks' button (via JavaScript)")
+                    return True
+            except:
+                pass
+            
+            return False
+    except Exception as e:
+        # Dialog check failed, but that's okay - continue
+        return False
+
+def find_available_days(driver):
+    """Find all days with available tests in the current week view"""
+    try:
+        # Wait for the table to load
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "browseslots"))
+        )
+        human_delay(1.0, 2.0)
+        
+        # Find all cells with available slots
+        available_days = []
+        try:
+            # Find all td elements with class "day slotsavailable" (has available tests)
+            day_cells = driver.find_elements(By.CSS_SELECTOR, "td.day.slotsavailable")
+            
+            for cell in day_cells:
+                try:
+                    if not cell.is_displayed():
+                        continue
+                    
+                    # Look for "view" link which indicates availability
+                    # Try multiple selectors for the view link
+                    view_link = None
+                    selectors = [
+                        "a[href*='eventId=searchForDailySlots']",
+                        "a[href*='searchForDailySlots']",
+                        "a:contains('view')",
+                        "a.largetext"
+                    ]
+                    
+                    for selector in selectors:
+                        try:
+                            links = cell.find_elements(By.CSS_SELECTOR, selector)
+                            for link in links:
+                                if link.is_displayed():
+                                    href = link.get_attribute("href") or ""
+                                    text = link.text.lower()
+                                    # Check if it's a view link
+                                    if "searchForDailySlots" in href or "view" in text:
+                                        view_link = link
+                                        break
+                            if view_link:
+                                break
+                        except:
+                            continue
+                    
+                    # Alternative: look for any link in the cell
+                    if not view_link:
+                        try:
+                            all_links = cell.find_elements(By.TAG_NAME, "a")
+                            for link in all_links:
+                                if link.is_displayed():
+                                    href = link.get_attribute("href") or ""
+                                    if "searchForDailySlots" in href or "eventId" in href:
+                                        view_link = link
+                                        break
+                        except:
+                            pass
+                    
+                    if view_link:
+                        # Extract day name from headers attribute or table column
+                        day_name = cell.get_attribute("headers")
+                        if not day_name or day_name == "":
+                            # Try to get from table header by column index
+                            try:
+                                # Get the column index of this cell
+                                cells_in_row = cell.find_elements(By.XPATH, "./preceding-sibling::td")
+                                col_index = len(cells_in_row) + 1  # +1 for header row
+                                
+                                # Find the header for this column
+                                table = cell.find_element(By.XPATH, "./ancestor::table")
+                                headers = table.find_elements(By.XPATH, ".//th")
+                                if col_index < len(headers):
+                                    day_name = headers[col_index].text.strip()
+                                else:
+                                    # Try getting from thead
+                                    thead = table.find_elements(By.TAG_NAME, "thead")
+                                    if thead:
+                                        th_elements = thead[0].find_elements(By.TAG_NAME, "th")
+                                        if col_index < len(th_elements):
+                                            day_name = th_elements[col_index].text.strip()
+                            except:
+                                day_name = "Unknown"
+                        
+                        # Clean up day name
+                        if day_name:
+                            day_name = day_name.strip()
+                            # Extract just the day name if it contains date info
+                            if " " in day_name:
+                                parts = day_name.split()
+                                day_name = parts[0]  # Get first part (e.g., "Mon", "Tue")
+                        
+                        available_days.append({
+                            'cell': cell,
+                            'link': view_link,
+                            'day': day_name or "Unknown"
+                        })
+                except Exception as e:
+                    continue
+        except Exception as e:
+            print(f"  ⚠ Error finding available days: {e}")
+        
+        return available_days
+    except Exception as e:
+        print(f"  ❌ Error in find_available_days: {e}")
+        return []
+
+def click_navigation_button(driver, button_id, button_name):
+    """Click a navigation button (Previous Week, Next Week, Return to search results)"""
+    try:
+        human_like_action_pause()
+        random_scroll(driver)
+        random_mouse_movement(driver)
+        
+        # Wait for button to be present
+        button = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, button_id))
+        )
+        
+        # Scroll into view
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button)
+        human_delay(1.5, 2.5)
+        
+        # Wait for button to be clickable
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(button))
+        
+        # Human-like click
+        ActionChains(driver).move_to_element(button).pause(
+            random.uniform(1.0, 2.0)
+        ).click().perform()
+        
+        print(f"  ✓ Clicked '{button_name}' button")
+        
+        # Wait for page to load after navigation
+        wait_for_page_load(driver)
+        longer_human_delay(3.0, 5.0)  # Longer delay after navigation
+        
+        return True
+    except TimeoutException:
+        print(f"  ⚠ '{button_name}' button not found (may not be available)")
+        return False
+    except Exception as e:
+        print(f"  ❌ Error clicking '{button_name}' button: {e}")
+        return False
+
+def check_navigation_buttons(driver):
+    """Check which navigation buttons are available"""
+    has_previous_week = False
+    has_next_week = False
+    has_return_to_search = False
+    
+    try:
+        # Check for Previous Week button
+        try:
+            driver.find_element(By.ID, "searchForWeeklySlotsPreviousWeek")
+            has_previous_week = True
+        except:
+            pass
+        
+        # Check for Next Week button
+        try:
+            driver.find_element(By.ID, "searchForWeeklySlotsNextWeek")
+            has_next_week = True
+        except:
+            pass
+        
+        # Check for Return to search results button
+        try:
+            driver.find_element(By.ID, "returnToSearchResults")
+            has_return_to_search = True
+        except:
+            pass
+    except:
+        pass
+    
+    return has_previous_week, has_next_week, has_return_to_search
+
+def reserve_all_tests_for_day(driver):
+    """Reserve all available tests on the current day's time slot page"""
+    try:
+        print("    Looking for 'Reserve test' buttons...")
+        
+        # Wait for the page to load
+        wait_for_page_load(driver)
+        human_delay(2.0, 3.0)
+        
+        # Find all Reserve test buttons
+        reserve_buttons = []
+        try:
+            # Look for reserve buttons by various selectors
+            selectors = [
+                "a[id^='reserve_']",
+                "span.greybutton a",
+                "a[href*='eventId=reserveSlot']"
+            ]
+            
+            for selector in selectors:
+                try:
+                    buttons = driver.find_elements(By.CSS_SELECTOR, selector)
+                    for btn in buttons:
+                        if btn.is_displayed() and btn.is_enabled():
+                            # Check if it's a reserve button
+                            href = btn.get_attribute("href") or ""
+                            if "reserveSlot" in href or btn.get_attribute("id", "").startswith("reserve_"):
+                                if btn not in reserve_buttons:
+                                    reserve_buttons.append(btn)
+                except:
+                    continue
+        except Exception as e:
+            print(f"    ⚠ Error finding reserve buttons: {e}")
+        
+        if not reserve_buttons:
+            print("    ℹ No 'Reserve test' buttons found for this day")
+            return 0
+        
+        print(f"    Found {len(reserve_buttons)} 'Reserve test' button(s)")
+        
+        # Click each reserve button
+        reserved_count = 0
+        for i, button in enumerate(reserve_buttons, 1):
+            try:
+                if not button.is_displayed():
+                    continue
+                
+                print(f"    Reserving test {i}/{len(reserve_buttons)}...")
+                
+                # Check for timeout dialog before reserving
+                handle_timeout_dialog(driver)
+                
+                # Human-like behavior before clicking
+                random_mouse_movement(driver)
+                human_delay(1.5, 3.0)
+                
+                # Scroll into view
+                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button)
+                human_delay(1.0, 2.0)
+                
+                # Wait for button to be clickable
+                WebDriverWait(driver, 10).until(EC.element_to_be_clickable(button))
+                
+                # Human-like click
+                ActionChains(driver).move_to_element(button).pause(
+                    random.uniform(1.0, 2.0)
+                ).click().perform()
+                
+                print(f"      ✓ Reserved test {i}")
+                
+                # Wait for page to update
+                wait_for_page_load(driver)
+                
+                # Check for timeout dialog after reserving
+                handle_timeout_dialog(driver)
+                
+                longer_human_delay(2.0, 4.0)  # Longer delay after reserving
+                
+                # Re-find buttons after page update (in case DOM changed)
+                try:
+                    reserve_buttons = driver.find_elements(By.CSS_SELECTOR, "a[id^='reserve_']")
+                except:
+                    pass
+                
+                reserved_count += 1
+                
+            except Exception as e:
+                print(f"      ⚠ Error reserving test {i}: {e}")
+                continue
+        
+        print(f"    ✓ Reserved {reserved_count} test(s) for this day")
+        return reserved_count
+        
+    except Exception as e:
+        print(f"    ❌ Error in reserve_all_tests_for_day: {e}")
+        return 0
+
+def click_available_day(driver, day_info):
+    """Click on an available day to view its time slots"""
+    try:
+        print(f"  Clicking on available day: {day_info['day']}...")
+        
+        # Check for timeout dialog before clicking
+        handle_timeout_dialog(driver)
+        
+        human_like_action_pause()
+        random_scroll(driver)
+        random_mouse_movement(driver)
+        
+        # Scroll the cell into view
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", day_info['cell'])
+        human_delay(1.5, 2.5)
+        
+        # Try to re-find the link in case DOM changed
+        try:
+            view_link = day_info['link']
+            if not view_link.is_displayed() or not view_link.is_enabled():
+                # Re-find the link
+                cell = day_info['cell']
+                links = cell.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    if link.is_displayed():
+                        href = link.get_attribute("href") or ""
+                        if "searchForDailySlots" in href or "eventId" in href:
+                            view_link = link
+                            break
+        except:
+            view_link = day_info['link']
+        
+        # Wait for link to be clickable
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(view_link))
+        
+        # Human-like click
+        ActionChains(driver).move_to_element(view_link).pause(
+            random.uniform(0.5, 1.0)
+        ).move_by_offset(random.randint(-5, 5), random.randint(-5, 5)).pause(
+            random.uniform(0.5, 1.0)
+        ).click().perform()
+        
+        print(f"  ✓ Clicked on {day_info['day']}")
+        
+        # Wait for page to load
+        wait_for_page_load(driver)
+        
+        # Check for timeout dialog after clicking
+        handle_timeout_dialog(driver)
+        
+        longer_human_delay(3.0, 5.0)
+        
+        return True
+    except Exception as e:
+        print(f"  ❌ Error clicking available day: {e}")
+        # Try alternative: click via JavaScript
+        try:
+            driver.execute_script("arguments[0].click();", day_info['link'])
+            wait_for_page_load(driver)
+            longer_human_delay(3.0, 5.0)
+            print(f"  ✓ Clicked on {day_info['day']} (via JavaScript)")
+            return True
+        except:
+            return False
+
+def scrape_weekly_availability(driver, direction="forward"):
+    """Main function to scrape weekly availability and reserve tests"""
+    print("\n" + "=" * 60)
+    print("Starting Weekly Availability Scraping")
+    print("=" * 60)
+    
+    iteration_count = 0
+    max_iterations = 1000  # Safety limit
+    total_reserved = 0
+    
+    try:
+        while iteration_count < max_iterations:
+            iteration_count += 1
+            print(f"\n{'='*60}")
+            print(f"Iteration {iteration_count}")
+            print(f"{'='*60}")
+            
+            # Wait for page to load
+            wait_for_page_load(driver)
+            human_delay(2.0, 3.0)
+            
+            # Check for timeout dialog and handle it
+            handle_timeout_dialog(driver)
+            
+            # Check current URL to understand what page we're on
+            current_url = driver.current_url
+            print(f"Current page: {current_url[:80]}...")
+            
+            # Check which navigation buttons are available
+            has_prev_week, has_next_week, has_return = check_navigation_buttons(driver)
+            print(f"Navigation: Previous Week={has_prev_week}, Next Week={has_next_week}, Return={has_return}")
+            
+            # If we're on the time slot page (has return button), go back
+            if has_return:
+                print("  On time slot page, returning to search results...")
+                if click_navigation_button(driver, "returnToSearchResults", "Return to search results"):
+                    # Check for dialog again after returning
+                    handle_timeout_dialog(driver)
+                    continue
+                else:
+                    print("  ⚠ Could not return to search results")
+                    break
+            
+            # Check for timeout dialog before searching for available days
+            handle_timeout_dialog(driver)
+            
+            # Find available days in current week
+            print("  Searching for available test days...")
+            available_days = find_available_days(driver)
+            
+            if available_days:
+                print(f"  ✓ Found {len(available_days)} day(s) with available tests")
+                
+                # Process each available day
+                for day_idx, day_info in enumerate(available_days, 1):
+                    print(f"\n  Processing day {day_idx}/{len(available_days)}: {day_info['day']}")
+                    
+                    # Click on the available day
+                    if click_available_day(driver, day_info):
+                        # Reserve all tests for this day
+                        reserved = reserve_all_tests_for_day(driver)
+                        total_reserved += reserved
+                        
+                        # Return to search results
+                        print("  Returning to search results...")
+                        if click_navigation_button(driver, "returnToSearchResults", "Return to search results"):
+                            # Check for timeout dialog after returning
+                            handle_timeout_dialog(driver)
+                            # Wait a bit before processing next day
+                            longer_human_delay(3.0, 5.0)
+                        else:
+                            print("  ⚠ Could not return to search results, trying to continue...")
+                            # Try to go back or refresh
+                            try:
+                                driver.back()
+                                wait_for_page_load(driver)
+                                handle_timeout_dialog(driver)
+                                longer_human_delay(3.0, 5.0)
+                            except:
+                                pass
+            else:
+                print("  ℹ No available test days found in this week")
+                
+                # Navigate to next/previous week based on direction
+                if direction == "forward":
+                    if has_next_week:
+                        print("  Clicking 'Next Week'...")
+                        if click_navigation_button(driver, "searchForWeeklySlotsNextWeek", "Next Week"):
+                            # Check for timeout dialog after navigation
+                            handle_timeout_dialog(driver)
+                            direction = "forward"  # Continue forward
+                        else:
+                            # Reached end, switch to backward
+                            print("  Reached end of date range, switching to Previous Week...")
+                            direction = "backward"
+                            if has_prev_week:
+                                click_navigation_button(driver, "searchForWeeklySlotsPreviousWeek", "Previous Week")
+                                handle_timeout_dialog(driver)
+                    else:
+                        # No next week button, switch to backward
+                        print("  No 'Next Week' button, switching to Previous Week...")
+                        direction = "backward"
+                        if has_prev_week:
+                            click_navigation_button(driver, "searchForWeeklySlotsPreviousWeek", "Previous Week")
+                            handle_timeout_dialog(driver)
+                else:  # direction == "backward"
+                    if has_prev_week:
+                        print("  Clicking 'Previous Week'...")
+                        if click_navigation_button(driver, "searchForWeeklySlotsPreviousWeek", "Previous Week"):
+                            # Check for timeout dialog after navigation
+                            handle_timeout_dialog(driver)
+                            direction = "backward"  # Continue backward
+                        else:
+                            # Reached start, switch to forward
+                            print("  Reached start of date range, switching to Next Week...")
+                            direction = "forward"
+                            if has_next_week:
+                                click_navigation_button(driver, "searchForWeeklySlotsNextWeek", "Next Week")
+                                handle_timeout_dialog(driver)
+                    else:
+                        # No previous week button, switch to forward
+                        print("  No 'Previous Week' button, switching to Next Week...")
+                        direction = "forward"
+                        if has_next_week:
+                            click_navigation_button(driver, "searchForWeeklySlotsNextWeek", "Next Week")
+                            handle_timeout_dialog(driver)
+            
+            # Random longer pause between iterations
+            longer_human_delay(4.0, 7.0)
+        
+        print(f"\n{'='*60}")
+        print(f"Scraping completed!")
+        print(f"Total iterations: {iteration_count}")
+        print(f"Total tests reserved: {total_reserved}")
+        print(f"{'='*60}")
+        
+    except KeyboardInterrupt:
+        print(f"\n\n⚠ Scraping interrupted by user")
+        print(f"Total tests reserved so far: {total_reserved}")
+    except Exception as e:
+        print(f"\n❌ Error in scraping loop: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return total_reserved
+
 def script_second_page():
     """Script the second page (booking form)"""
     print("=" * 60)
@@ -1129,10 +1700,23 @@ def script_second_page():
         )
         print("✓ Clicked 'Book test' button")
         # Longer delay after clicking
-        longer_human_delay(2.0, 4.0)
+        longer_human_delay(3.0, 5.0)
         
         print("\n" + "=" * 60)
         print("✓ First part of scripting completed successfully!")
+        print("✓ Now starting weekly availability scraping...")
+        print("=" * 60)
+        
+        # Wait for the availability page to load
+        wait_for_page_load(driver)
+        longer_human_delay(3.0, 5.0)
+        
+        # Start scraping weekly availability
+        total_reserved = scrape_weekly_availability(driver, direction="forward")
+        
+        print("\n" + "=" * 60)
+        print("✓ Script completed successfully!")
+        print(f"✓ Total tests reserved: {total_reserved}")
         print("=" * 60)
         
         # Keep browser open
