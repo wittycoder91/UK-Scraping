@@ -1704,24 +1704,75 @@ def script_second_page():
         
         print("\n" + "=" * 60)
         print("✓ First part of scripting completed successfully!")
-        print("✓ Now starting weekly availability scraping...")
         print("=" * 60)
         
+        # CRITICAL: Explicitly continue to second page scraping
+        # This ensures the script doesn't exit here
+        print("\n" + "=" * 60)
+        print(">>> TRANSITIONING TO SECOND PAGE SCRAPING <<<")
+        print("STARTING: Weekly Availability Scraping")
+        print("=" * 60)
+        import sys
+        sys.stdout.flush()  # Force output to appear immediately
+        
         # Wait for the availability page to load
+        print("\n[Transition] Waiting for availability page to load after form submission...")
+        try:
+            # Wait for the availability table to appear (this indicates we're on the results page)
+            print("  Looking for availability table (id='browseslots')...")
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.ID, "browseslots"))
+            )
+            print("  ✓ Availability page loaded successfully")
+        except TimeoutException:
+            print("  ⚠ Availability table not found immediately, checking page state...")
+            # Check current URL
+            current_url = driver.current_url
+            print(f"  Current URL: {current_url[:100]}...")
+            # Check for timeout dialog
+            handle_timeout_dialog(driver)
+            # Try waiting a bit more
+            time.sleep(3)
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "browseslots"))
+                )
+                print("  ✓ Availability page loaded (after retry)")
+            except:
+                print("  ⚠ Still waiting for availability table, but continuing anyway...")
+        
         wait_for_page_load(driver)
         longer_human_delay(3.0, 5.0)
         
-        # Start scraping weekly availability
-        total_reserved = scrape_weekly_availability(driver, direction="forward")
+        # Check for timeout dialog before starting scraping
+        print("  Checking for timeout dialog...")
+        handle_timeout_dialog(driver)
         
+        # Start scraping weekly availability
         print("\n" + "=" * 60)
-        print("✓ Script completed successfully!")
-        print(f"✓ Total tests reserved: {total_reserved}")
+        print("BEGINNING WEEKLY AVAILABILITY SCRAPING")
         print("=" * 60)
+        try:
+            total_reserved = scrape_weekly_availability(driver, direction="forward")
+            
+            print("\n" + "=" * 60)
+            print("✓ Script completed successfully!")
+            print(f"✓ Total tests reserved: {total_reserved}")
+            print("=" * 60)
+        except Exception as e:
+            print(f"\n❌ Error during weekly availability scraping: {e}")
+            import traceback
+            traceback.print_exc()
+            print("\n⚠ Scraping stopped, but browser remains open.")
+            total_reserved = 0
         
         # Keep browser open
         print("\nBrowser will remain open. Press Ctrl+C to exit.")
-        time.sleep(5)
+        try:
+            while True:
+                time.sleep(10)
+        except KeyboardInterrupt:
+            print("\n\nScript interrupted by user.")
         
         return True
         
