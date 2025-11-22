@@ -4,6 +4,11 @@ import socket
 import subprocess
 import platform
 import os
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
@@ -123,6 +128,36 @@ def check_port_available(port=9222):
     except:
         return False
 
+def is_chrome_running():
+    """Check if Chrome browser is currently running"""
+    if PSUTIL_AVAILABLE:
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    proc_name = proc.info['name'].lower()
+                    if 'chrome' in proc_name and 'chromedriver' not in proc_name:
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return False
+        except:
+            pass
+    
+    # Fallback: try alternative method without psutil
+    try:
+        system = platform.system()
+        if system == "Windows":
+            result = subprocess.run(['tasklist'], capture_output=True, text=True, timeout=5)
+            return 'chrome.exe' in result.stdout.lower()
+        elif system == "Darwin":  # macOS
+            result = subprocess.run(['pgrep', '-f', 'Google Chrome'], capture_output=True, timeout=5)
+            return result.returncode == 0
+        else:  # Linux
+            result = subprocess.run(['pgrep', '-f', 'chrome'], capture_output=True, timeout=5)
+            return result.returncode == 0
+    except:
+        return False
+
 def detect_browser_type():
     """Detect which browser is running with remote debugging"""
     # Check common ports for different browsers
@@ -133,16 +168,14 @@ def detect_browser_type():
     else:
         return None
 
-def start_chrome_with_debugging():
-    """Automatically start Chrome with remote debugging enabled"""
-    print("Attempting to start Chrome with remote debugging...")
-    
+def get_chrome_path():
+    """Get the path to Chrome executable"""
     system = platform.system()
-    user_data_dir = None
     
     if system == "Darwin":  # macOS
         chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        user_data_dir = os.path.expanduser("~/temp/chrome_debug")
+        if os.path.exists(chrome_path):
+            return chrome_path
     elif system == "Windows":
         # Try common Chrome installation paths on Windows
         possible_paths = [
@@ -150,69 +183,25 @@ def start_chrome_with_debugging():
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
         ]
-        chrome_path = None
         for path in possible_paths:
             if os.path.exists(path):
-                chrome_path = path
-                break
-        user_data_dir = os.path.expanduser(r"~\temp\chrome_debug")
+                return path
     else:  # Linux
-        chrome_path = "google-chrome"  # or "chromium-browser"
-        user_data_dir = os.path.expanduser("~/temp/chrome_debug")
+        return "google-chrome"  # or "chromium-browser"
     
-    if not chrome_path or (system != "Linux" and not os.path.exists(chrome_path)):
-        print(f"❌ Could not find Chrome executable")
-        print(f"Please start Chrome manually with: --remote-debugging-port=9222")
-        return False
-    
-    # Create user data directory if it doesn't exist
-    try:
-        os.makedirs(user_data_dir, exist_ok=True)
-    except Exception as e:
-        print(f"⚠ Warning: Could not create user data directory: {e}")
-    
-    # Start Chrome with remote debugging
-    try:
-        cmd = [
-            chrome_path,
-            "--remote-debugging-port=9222",
-            f"--user-data-dir={user_data_dir}",
-            "--no-first-run",
-            "--no-default-browser-check"
-        ]
-        
-        print(f"Starting Chrome: {' '.join(cmd)}")
-        # Start Chrome in background (detached process)
-        if system == "Windows":
-            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
-        else:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        print("✓ Chrome started with remote debugging")
-        print("ℹ Note: This Chrome instance uses a separate profile, so it won't affect your normal Chrome")
-        print("ℹ You can use tabs in this Chrome window, or navigate to your page")
-        print("Waiting for Chrome to initialize...")
-        time.sleep(3)  # Wait for Chrome to start
-        
-        # Verify port is now available
-        if check_port_available(9222):
-            print("✓ Chrome remote debugging is ready")
-            return True
-        else:
-            print("⚠ Chrome started but remote debugging port not yet available")
-            print("Waiting a bit longer...")
-            time.sleep(3)
-            if check_port_available(9222):
-                print("✓ Chrome remote debugging is now ready")
-                return True
-            else:
-                print("❌ Chrome started but remote debugging port still not available")
-                return False
-    except Exception as e:
-        print(f"❌ Failed to start Chrome: {e}")
-        return False
+    return None
 
-def connect_to_browser(browser_type=None, auto_start=True):
+def get_default_chrome_user_data_dir():
+    """Get the default Chrome user data directory"""
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        return os.path.expanduser("~/Library/Application Support/Google/Chrome")
+    elif system == "Windows":
+        return os.path.expanduser(r"~\AppData\Local\Google\Chrome\User Data")
+    else:  # Linux
+        return os.path.expanduser("~/.config/google-chrome")
+
+def connect_to_browser(browser_type=None, auto_start=False):
     """Connect to existing browser (Chrome or Firefox) using remote debugging"""
     if browser_type is None:
         browser_type = detect_browser_type()
@@ -223,34 +212,63 @@ def connect_to_browser(browser_type=None, auto_start=True):
         return connect_to_firefox()
     else:
         # No browser found with debugging
-        if auto_start:
-            print("\n⚠ No browser found with remote debugging enabled")
-            print("Attempting to start Chrome automatically...")
-            if start_chrome_with_debugging():
-                # Try connecting again
-                time.sleep(2)
-                return connect_to_chrome()
-            else:
-                print("\n❌ Could not start Chrome automatically")
-                print("\nPlease start Chrome manually with remote debugging:")
-                if platform.system() == "Darwin":  # macOS
-                    print("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
-                elif platform.system() == "Windows":
-                    print("  chrome.exe --remote-debugging-port=9222 --user-data-dir=\"C:\\temp\\chrome_debug\"")
-                else:
-                    print("  google-chrome --remote-debugging-port=9222 --user-data-dir=\"~/temp/chrome_debug\"")
-                return None
+        print("\n⚠ No browser found with remote debugging enabled")
+        
+        # Check if Chrome is running normally (without debugging)
+        chrome_running = is_chrome_running()
+        chrome_path = get_chrome_path()
+        
+        if chrome_running:
+            print("\n⚠ Chrome is currently running, but without remote debugging enabled.")
+            print("\n📋 To use your existing Chrome browser with all your tabs:")
+            print("   1. Close ALL Chrome windows completely")
+            print("   2. Restart Chrome with remote debugging using one of these commands:\n")
+            
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                default_user_data = get_default_chrome_user_data_dir()
+                print(f"   /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+                print(f"       --remote-debugging-port=9222 \\")
+                print(f"       --user-data-dir=\"{default_user_data}\"")
+            elif system == "Windows":
+                default_user_data = get_default_chrome_user_data_dir()
+                print(f"   \"{chrome_path}\" ^")
+                print(f"       --remote-debugging-port=9222 ^")
+                print(f"       --user-data-dir=\"{default_user_data}\"")
+            else:  # Linux
+                default_user_data = get_default_chrome_user_data_dir()
+                print(f"   google-chrome \\")
+                print(f"       --remote-debugging-port=9222 \\")
+                print(f"       --user-data-dir=\"{default_user_data}\"")
+            
+            print("\n   3. Your existing tabs and bookmarks will be preserved")
+            print("   4. Navigate to the DVSA booking page")
+            print("   5. Run this script again")
         else:
-            print("\n❌ No browser found with remote debugging enabled!")
-            print("\n⚠ IMPORTANT: You need to start a browser with remote debugging first.")
-            print("\n📋 Available options:")
-            print("\n✅ Chrome (Recommended - Easiest):")
-            print("  macOS: ./start_chrome_debug.sh")
-            print("  or: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=\"$HOME/temp/chrome_debug\"")
-            print("\n✅ Firefox:")
-            print("  macOS: /Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port 9223")
-            print("\nThen wait a few seconds and run this script again.")
-            return None
+            print("\n📋 To start Chrome with remote debugging:")
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                default_user_data = get_default_chrome_user_data_dir()
+                print(f"   /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
+                print(f"       --remote-debugging-port=9222 \\")
+                print(f"       --user-data-dir=\"{default_user_data}\"")
+            elif system == "Windows":
+                default_user_data = get_default_chrome_user_data_dir()
+                if chrome_path:
+                    print(f"   \"{chrome_path}\" ^")
+                    print(f"       --remote-debugging-port=9222 ^")
+                    print(f"       --user-data-dir=\"{default_user_data}\"")
+                else:
+                    print("   chrome.exe --remote-debugging-port=9222")
+            else:  # Linux
+                default_user_data = get_default_chrome_user_data_dir()
+                print(f"   google-chrome \\")
+                print(f"       --remote-debugging-port=9222 \\")
+                print(f"       --user-data-dir=\"{default_user_data}\"")
+            
+            print("\n   Then navigate to the DVSA booking page and run this script again")
+        
+        return None
 
 def connect_to_chrome():
     """Connect to existing Chrome browser using remote debugging"""
@@ -947,10 +965,10 @@ def script_second_page():
     print("Starting DVSA Booking Form Automation")
     print("=" * 60)
     
-    # Connect to existing browser tab (auto-starts Chrome with debugging if needed)
-    print("\n[Step 1] Connecting to browser...")
+    # Connect to existing browser tab (must have remote debugging enabled)
+    print("\n[Step 1] Connecting to existing browser tab...")
     print("Looking for Chrome browser with remote debugging enabled...")
-    driver = connect_to_browser(auto_start=True)  # Auto-start Chrome if needed
+    driver = connect_to_browser(auto_start=False)  # Don't auto-start, use existing browser
     
     if not driver:
         print("❌ Failed to connect to browser")
